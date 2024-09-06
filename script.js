@@ -11,20 +11,20 @@ function renderList(list, containerId) {
     list.forEach(item => {
         const taskItem = document.createElement('div');
         taskItem.className = 'task-item';
-        taskItem.draggable = true;  // Make tasks draggable
-        taskItem.dataset.id = item.id; // Assign id to draggable items
+        taskItem.draggable = true;
+        taskItem.dataset.id = item.id;
         taskItem.innerHTML = `
             <span>${item.time || item.date || ''} ${item.task || item.event || item.area}</span>
             <button onclick="removeItem('${item.id}', '${containerId}')">Remove</button>
         `;
         
-        // Add drag event listeners
-        taskItem.addEventListener('dragstart', dragStart);
-        taskItem.addEventListener('dragend', dragEnd);
-
+        // Add event listeners for both mouse and touch events
+        taskItem.addEventListener('mousedown', dragStart);
+        taskItem.addEventListener('touchstart', dragStart, {passive: false});
+        
         container.appendChild(taskItem);
     });
-    saveData(containerId);  // Save data every time list is rendered
+    saveData(containerId);
 }
 
 function addTask() {
@@ -94,72 +94,177 @@ function removeItem(id, containerId) {
 
 // Drag & Drop Functions
 let draggedItem = null;
+let touchStartY = 0;
+let touchStartX = 0;
 
 function dragStart(event) {
-    draggedItem = event.target;
-    setTimeout(() => event.target.style.display = 'none', 0);
+    event.preventDefault(); // Prevent default behavior
+    draggedItem = event.target.closest('.task-item');
+    
+    if (event.type === 'touchstart') {
+        touchStartY = event.touches[0].clientY;
+        touchStartX = event.touches[0].clientX;
+    } else {
+        touchStartY = event.clientY;
+        touchStartX = event.clientX;
+    }
+    
+    setTimeout(() => {
+        draggedItem.style.opacity = '0.5';
+    }, 0);
+    
+    document.addEventListener('mousemove', dragMove);
+    document.addEventListener('touchmove', dragMove, {passive: false});
+    document.addEventListener('mouseup', dragEnd);
+    document.addEventListener('touchend', dragEnd);
+}
+
+function dragMove(event) {
+    event.preventDefault();
+    if (!draggedItem) return;
+
+    let clientY, clientX;
+    if (event.type === 'touchmove') {
+        clientY = event.touches[0].clientY;
+        clientX = event.touches[0].clientX;
+    } else {
+        clientY = event.clientY;
+        clientX = event.clientX;
+    }
+    
+    // Get all task lists
+    const taskLists = document.querySelectorAll('.task-list');
+    
+    // Find the list the pointer is currently over
+    let targetList = null;
+    for (const list of taskLists) {
+        const rect = list.getBoundingClientRect();
+        if (clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom) {
+            targetList = list;
+            break;
+        }
+    }
+    
+    if (targetList) {
+        const items = Array.from(targetList.children);
+        let closestItem = null;
+        let closestDistance = Infinity;
+        
+        items.forEach(item => {
+            const rect = item.getBoundingClientRect();
+            const distance = Math.abs(clientY - (rect.top + rect.height / 2));
+            if (distance < closestDistance) {
+                closestItem = item;
+                closestDistance = distance;
+            }
+        });
+        
+        if (closestItem !== draggedItem) {
+            const isBefore = clientY < closestItem.getBoundingClientRect().top + closestItem.offsetHeight / 2;
+            targetList.insertBefore(draggedItem, isBefore ? closestItem : closestItem.nextSibling);
+        }
+    }
 }
 
 function dragEnd(event) {
-    setTimeout(() => {
-        draggedItem.style.display = 'block';
-        draggedItem = null;
-    }, 0);
+    if (!draggedItem) return;
+    
+    draggedItem.style.opacity = '1';
+    
+    const newContainerId = draggedItem.closest('.task-list').id;
+    const oldContainerId = getItemListId(draggedItem.dataset.id);
+    
+    if (newContainerId !== oldContainerId) {
+        moveItem(draggedItem.dataset.id, oldContainerId, newContainerId);
+    }
+    
+    draggedItem = null;
+    
+    document.removeEventListener('mousemove', dragMove);
+    document.removeEventListener('touchmove', dragMove);
+    document.removeEventListener('mouseup', dragEnd);
+    document.removeEventListener('touchend', dragEnd);
 }
 
-function handleDragOver(event) {
-    event.preventDefault();  // Necessary to allow drop
-}
-
-function handleDrop(event, containerId) {
-    const itemId = draggedItem.dataset.id;
-    const sourceContainerId = draggedItem.closest('.task-list').id;
-
-    moveItem(itemId, sourceContainerId, containerId);
+function getItemListId(itemId) {
+    if (todaysTasks.some(task => task.id === itemId)) return 'todaysTasks';
+    if (recentEvents.some(event => event.id === itemId)) return 'recentEvents';
+    if (dailyChecks.some(check => check.id === itemId)) return 'dailyChecks';
+    if (focusAreas.some(area => area.id === itemId)) return 'focusAreas';
+    return null;
 }
 
 function moveItem(itemId, sourceContainerId, destinationContainerId) {
     let item;
+    let sourceList, destinationList;
 
-    // Find the item in the source list
     switch (sourceContainerId) {
         case 'todaysTasks':
-            item = todaysTasks.find(task => task.id === itemId);
-            todaysTasks = todaysTasks.filter(task => task.id !== itemId);
+            sourceList = todaysTasks;
             break;
         case 'recentEvents':
-            item = recentEvents.find(event => event.id === itemId);
-            recentEvents = recentEvents.filter(event => event.id !== itemId);
+            sourceList = recentEvents;
             break;
         case 'dailyChecks':
-            item = dailyChecks.find(check => check.id === itemId);
-            dailyChecks = dailyChecks.filter(check => check.id !== itemId);
+            sourceList = dailyChecks;
             break;
         case 'focusAreas':
-            item = focusAreas.find(area => area.id === itemId);
-            focusAreas = focusAreas.filter(area => area.id !== itemId);
+            sourceList = focusAreas;
             break;
     }
 
-    // Move the item to the destination list
     switch (destinationContainerId) {
         case 'todaysTasks':
-            todaysTasks.push(item);
-            renderList(todaysTasks, 'todaysTasks');
+            destinationList = todaysTasks;
             break;
         case 'recentEvents':
-            recentEvents.push(item);
-            renderList(recentEvents, 'recentEvents');
+            destinationList = recentEvents;
             break;
         case 'dailyChecks':
-            dailyChecks.push(item);
-            renderList(dailyChecks, 'dailyChecks');
+            destinationList = dailyChecks;
             break;
         case 'focusAreas':
-            focusAreas.push(item);
-            renderList(focusAreas, 'focusAreas');
+            destinationList = focusAreas;
             break;
     }
+
+    item = sourceList.find(i => i.id === itemId);
+    sourceList = sourceList.filter(i => i.id !== itemId);
+    destinationList.push(item);
+
+    // Update the global variables
+    switch (sourceContainerId) {
+        case 'todaysTasks':
+            todaysTasks = sourceList;
+            break;
+        case 'recentEvents':
+            recentEvents = sourceList;
+            break;
+        case 'dailyChecks':
+            dailyChecks = sourceList;
+            break;
+        case 'focusAreas':
+            focusAreas = sourceList;
+            break;
+    }
+
+    switch (destinationContainerId) {
+        case 'todaysTasks':
+            todaysTasks = destinationList;
+            break;
+        case 'recentEvents':
+            recentEvents = destinationList;
+            break;
+        case 'dailyChecks':
+            dailyChecks = destinationList;
+            break;
+        case 'focusAreas':
+            focusAreas = destinationList;
+            break;
+    }
+
+    renderList(sourceList, sourceContainerId);
+    renderList(destinationList, destinationContainerId);
 }
 
 // Saving and Loading Data from localStorage
@@ -193,24 +298,17 @@ function loadData() {
 }
 
 // Tab Switching
-document.querySelectorAll('.tab-button').forEach(button => {
-    button.addEventListener('click', () => {
-        document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
-        document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+function initializeTabs() {
+    document.querySelectorAll('.tab-button').forEach(button => {
+        button.addEventListener('click', () => {
+            document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
 
-        button.classList.add('active');
-        document.getElementById(button.dataset.tab).classList.add('active');
+            button.classList.add('active');
+            document.getElementById(button.dataset.tab).classList.add('active');
+        });
     });
-});
-
-// Adding Drop Zones to Each List
-document.querySelectorAll('.task-list').forEach(list => {
-    list.addEventListener('dragover', handleDragOver);
-    list.addEventListener('drop', (event) => handleDrop(event, list.id));
-});
-
-// Initial Rendering
-window.onload = loadData;  // Load data when the page is loaded
+}
 
 // Chatbot (Basic Implementation)
 function handleChatbotSubmit() {
@@ -249,3 +347,14 @@ function getChatbotResponse(input) {
     }
     addChatbotMessage('bot', response);
 }
+
+// Initial Rendering
+window.onload = function() {
+    loadData();
+    initializeTabs();
+    document.addEventListener('touchmove', function(event) {
+        if (draggedItem) {
+            event.preventDefault();
+        }
+    }, {passive: false});
+};
