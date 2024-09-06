@@ -1,3 +1,9 @@
+// Global Variables
+let todaysTasks = [];
+let recentEvents = [];
+let dailyChecks = [];
+let focusAreas = [];
+
 // Utility Functions
 function renderList(list, containerId) {
     const container = document.getElementById(containerId);
@@ -5,10 +11,17 @@ function renderList(list, containerId) {
     list.forEach(item => {
         const taskItem = document.createElement('div');
         taskItem.className = 'task-item';
+        taskItem.draggable = true;  // Make tasks draggable
+        taskItem.dataset.id = item.id; // Assign id to draggable items
         taskItem.innerHTML = `
             <span>${item.time || item.date || ''} ${item.task || item.event || item.area}</span>
             <button onclick="removeItem('${item.id}', '${containerId}')">Remove</button>
         `;
+        
+        // Add drag event listeners
+        taskItem.addEventListener('dragstart', dragStart);
+        taskItem.addEventListener('dragend', dragEnd);
+
         container.appendChild(taskItem);
     });
     saveData(containerId);  // Save data every time list is rendered
@@ -79,6 +92,76 @@ function removeItem(id, containerId) {
     }
 }
 
+// Drag & Drop Functions
+let draggedItem = null;
+
+function dragStart(event) {
+    draggedItem = event.target;
+    setTimeout(() => event.target.style.display = 'none', 0);
+}
+
+function dragEnd(event) {
+    setTimeout(() => {
+        draggedItem.style.display = 'block';
+        draggedItem = null;
+    }, 0);
+}
+
+function handleDragOver(event) {
+    event.preventDefault();  // Necessary to allow drop
+}
+
+function handleDrop(event, containerId) {
+    const itemId = draggedItem.dataset.id;
+    const sourceContainerId = draggedItem.closest('.task-list').id;
+
+    moveItem(itemId, sourceContainerId, containerId);
+}
+
+function moveItem(itemId, sourceContainerId, destinationContainerId) {
+    let item;
+
+    // Find the item in the source list
+    switch (sourceContainerId) {
+        case 'todaysTasks':
+            item = todaysTasks.find(task => task.id === itemId);
+            todaysTasks = todaysTasks.filter(task => task.id !== itemId);
+            break;
+        case 'recentEvents':
+            item = recentEvents.find(event => event.id === itemId);
+            recentEvents = recentEvents.filter(event => event.id !== itemId);
+            break;
+        case 'dailyChecks':
+            item = dailyChecks.find(check => check.id === itemId);
+            dailyChecks = dailyChecks.filter(check => check.id !== itemId);
+            break;
+        case 'focusAreas':
+            item = focusAreas.find(area => area.id === itemId);
+            focusAreas = focusAreas.filter(area => area.id !== itemId);
+            break;
+    }
+
+    // Move the item to the destination list
+    switch (destinationContainerId) {
+        case 'todaysTasks':
+            todaysTasks.push(item);
+            renderList(todaysTasks, 'todaysTasks');
+            break;
+        case 'recentEvents':
+            recentEvents.push(item);
+            renderList(recentEvents, 'recentEvents');
+            break;
+        case 'dailyChecks':
+            dailyChecks.push(item);
+            renderList(dailyChecks, 'dailyChecks');
+            break;
+        case 'focusAreas':
+            focusAreas.push(item);
+            renderList(focusAreas, 'focusAreas');
+            break;
+    }
+}
+
 // Saving and Loading Data from localStorage
 function saveData(containerId) {
     switch (containerId) {
@@ -118,6 +201,12 @@ document.querySelectorAll('.tab-button').forEach(button => {
         button.classList.add('active');
         document.getElementById(button.dataset.tab).classList.add('active');
     });
+});
+
+// Adding Drop Zones to Each List
+document.querySelectorAll('.task-list').forEach(list => {
+    list.addEventListener('dragover', handleDragOver);
+    list.addEventListener('drop', (event) => handleDrop(event, list.id));
 });
 
 // Initial Rendering
